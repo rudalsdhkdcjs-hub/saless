@@ -1,0 +1,8 @@
+[
+  {"monthly_sales": 20000000, "gross_margin": 1.0, "rent": 0, "vehicle": 0, "misc": 0, "owner_is_pharmacist": true, "label": "월 이익 2,000만(비용 0)"},
+  {"monthly_sales": 30000000, "gross_margin": 1.0, "rent": 0, "vehicle": 0, "misc": 0, "owner_is_pharmacist": true, "label": "월 이익 3,000만(비용 0)"},
+  {"monthly_sales": 20000000, "gross_margin": 1.0, "owner_is_pharmacist": true, "label": "월 총이익 2,000만(고정비 250만)"},
+  {"monthly_sales": 30000000, "gross_margin": 1.0, "owner_is_pharmacist": true, "label": "월 총이익 3,000만(고정비 250만)"},
+  {"monthly_sales": 20000000, "gross_margin": 1.0, "owner_is_pharmacist": false, "label": "월 총이익 2,000만(관리약사 고용)"},
+  {"monthly_sales": 30000000, "gross_margin": 1.0, "owner_is_pharmacist": false, "label": "월 총이익 3,000만(관리약사 고용)"}
+]
