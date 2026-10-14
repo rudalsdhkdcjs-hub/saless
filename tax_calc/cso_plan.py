@@ -13,8 +13,12 @@ from cso_net_cash import P2, min_tax, earned_income_deduction, earned_income_cre
 
 CAR = {
     "없음": 0,
+    "기존차(내연기관, 보유)": 0,
     "폴스타4 싱글":   66_900_000, "폴스타4 듀얼": 71_900_000,
     "폴스타3 리어":   77_900_000, "폴스타3 듀얼": 85_900_000, "폴스타3 퍼포먼스": 99_900_000,
+}
+EFF = {  # 복합전비 km/kWh (인증값; 실주행은 겨울 포함 약 15% 낮게 봄)
+    "폴스타4 싱글": 4.6, "폴스타4 듀얼": 4.2, "폴스타3 리어": 4.0, "폴스타3 듀얼": 3.8, "폴스타3 퍼포먼스": 3.6,
 }
 P3 = {
     "dep_years": 5,                 # 업무용승용차 5년 정액 강제
@@ -32,7 +36,20 @@ class Plan:
     car: str = "폴스타4 듀얼"
     car_apr: float = 0.059           # 풀할부 금리(가정)
     car_months: int = 60
-    car_other_annual: float = 3_200_000   # 보험 180 + 충전 80 + 자동차세 13 + 정비·세차 50
+    option_price: float = 0          # 옵션 추가금
+    km_per_year: float = 50_000
+    won_per_kwh: float = 320         # 완속·급속 혼합 평균 단가(아파트 완속 ~295, 급속 350~393)
+    real_eff_factor: float = 0.85    # 인증 전비 대비 실주행 보정
+    insurance: float = 1_800_000
+    maintenance: float = 500_000     # 정비·세차·소모품(타이어 제외)
+    tire_set_price: float = 1_500_000
+    tire_life_km: float = 40_000
+    car_tax: float = 130_000         # 전기차 자동차세
+    ice_fuel_km_per_l: float = 12.0  # 기존차 연비
+    ice_fuel_won_per_l: float = 1_650
+    ice_maintenance: float = 1_500_000  # 기존차 정비·타이어(고주행)
+    ice_insurance: float = 1_000_000
+    ice_car_tax: float = 400_000
     logbook: bool = False            # 운행기록부 작성 여부
     biz_ratio: float = 1.0           # 운행기록부 작성 시 업무사용비율
     subsidy: float = 1_500_000       # 전기차 보조금(지자체 포함, 차량가 8,500만 미만만)
@@ -60,18 +77,23 @@ def compute(p: Plan) -> dict:
 
     # ---- 차량
     price = CAR[p.car]
-    net_price = max(price - p.subsidy - P3["ev_tax_relief"], 0) if price else 0.0
-    pay_y1, int_y1 = amortization_year1(net_price, p.car_apr, p.car_months) if net_price else (0.0, 0.0)
-    dep = net_price / P3["dep_years"]
-    dep_allowed = min(dep, P3["dep_cap"])
-    related = dep_allowed + int_y1 + (p.car_other_annual if price else 0.0)
-    if p.logbook:
-        car_expense = related * p.biz_ratio
+    if p.car == "기존차(내연기관, 보유)":
+        net_price, pay_y1, int_y1, dep, dep_allowed, dep_carry = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+        other = (p.km_per_year / p.ice_fuel_km_per_l * p.ice_fuel_won_per_l + p.ice_maintenance + p.ice_insurance + p.ice_car_tax)
+    elif price:
+        net_price = max(price + p.option_price - p.subsidy - P3["ev_tax_relief"] + p.option_price * 0.07, 0)  # 옵션분 취득세 7%
+        pay_y1, int_y1 = amortization_year1(net_price, p.car_apr, p.car_months)
+        dep = net_price / P3["dep_years"]
+        dep_allowed = min(dep, P3["dep_cap"]); dep_carry = dep - dep_allowed
+        charge = p.km_per_year / (EFF[p.car] * p.real_eff_factor) * p.won_per_kwh
+        tires = p.km_per_year / p.tire_life_km * p.tire_set_price
+        other = charge + tires + p.insurance + p.maintenance + p.car_tax
     else:
-        car_expense = min(related, P3["nologbook_cap"])
-    dep_carry = dep - dep_allowed            # 매년 이월되는 감가상각
-    other = p.car_other_annual if price else 0.0
+        net_price = pay_y1 = int_y1 = dep = dep_allowed = dep_carry = other = 0.0
+    related = dep_allowed + int_y1 + other
+    car_expense = related * p.biz_ratio if p.logbook else min(related, P3["nologbook_cap"])
     car_cash = pay_y1 + other
+    car_charge = (p.km_per_year / (EFF[p.car] * p.real_eff_factor) * p.won_per_kwh) if p.car in EFF else 0.0
 
     # ---- 판촉·접대
     promo = p.promo_monthly * 12
@@ -117,7 +139,7 @@ def compute(p: Plan) -> dict:
     return {
         "label": p.label or f"{won(p.monthly_profit)}/월 · {p.car} · 판촉{won(p.promo_monthly)} · 가족급여{won(p.family_salary_monthly)}" + (" · 중기10%" if p.sme10 else ""),
         "inputs": asdict(p),
-        "car_net_price": net_price, "car_pay_y1": pay_y1, "car_interest_y1": int_y1, "car_expense": car_expense, "dep_carry": dep_carry, "car_cash": car_cash,
+        "car_net_price": net_price, "car_pay_y1": pay_y1, "car_other": other, "car_charge": car_charge, "car_related": related, "car_interest_y1": int_y1, "car_expense": car_expense, "dep_carry": dep_carry, "car_cash": car_cash,
         "promo": promo, "promo_expense": promo_expense, "ent_cap": ent_cap,
         "family_salary": fam, "employer_social": er_social, "family_social": emp_social, "family_tax": fam_tax, "family_cash": family_cash,
         "health_insurance": hi, "business_income": bi, "national_pension": np_, "yellow": yellow, "taxable": taxable,
@@ -130,7 +152,10 @@ def compute(p: Plan) -> dict:
 ROWS = [
     ("연 영업이익(입력)", "profit_in"),
     ("차량 실구매가(보조금·세제 후)", "car_net_price"),
-    ("차량 경비 인정(감가 800만 한도)", "car_expense"),
+    ("차량 유지비(충전·타이어·보험·정비·세금)", "car_other"),
+    ("  └ 그중 충전비", "car_charge"),
+    ("차량 관련비용 합계(감가 800만 한도 적용)", "car_related"),
+    ("차량 경비 인정", "car_expense"),
     ("  └ 매년 이월되는 감가상각", "dep_carry"),
     ("차량 현금 지출(할부 원리금+유지)", "car_cash"),
     ("판촉·접대 지출", "promo"),
@@ -161,10 +186,11 @@ def table(rs):
 def scenarios(profit):
     return [
         Plan(profit, car="없음", promo_monthly=0, pension=0, yellow=False, label=f"{won(profit)} · 차·판촉·적립 없음(기준선)"),
-        Plan(profit, car="폴스타4 듀얼", label=f"{won(profit)} · 폴스타4 듀얼 · 판촉300 · 연금풀"),
-        Plan(profit, car="폴스타4 듀얼", sme10=True, label=f"{won(profit)} · 동일 + 중기감면10%"),
-        Plan(profit, car="폴스타4 듀얼", family_salary_monthly=2_500_000, spouse_was_dependent=False, label=f"{won(profit)} · 동일 + 배우자급여250"),
-        Plan(profit, car="폴스타3 듀얼", subsidy=0, label=f"{won(profit)} · 폴스타3 듀얼(보조금0) · 판촉300 · 연금풀"),
+        Plan(profit, car="기존차(내연기관, 보유)", label=f"{won(profit)} · 기존차 유지 · 판촉300 · 적립풀"),
+        Plan(profit, car="폴스타4 듀얼", option_price=10_000_000, logbook=False, label=f"{won(profit)} · 폴스타4 듀얼+옵션1000 · 운행기록부 X"),
+        Plan(profit, car="폴스타4 듀얼", option_price=10_000_000, logbook=True, biz_ratio=0.9, label=f"{won(profit)} · 폴스타4 듀얼+옵션1000 · 운행기록부 O(90%)"),
+        Plan(profit, car="폴스타3 듀얼", option_price=10_000_000, subsidy=0, logbook=True, biz_ratio=0.9, label=f"{won(profit)} · 폴스타3 듀얼+옵션1000 · 운행기록부 O(90%)"),
+        Plan(profit, car="폴스타4 듀얼", option_price=10_000_000, logbook=True, biz_ratio=0.9, family_salary_monthly=2_500_000, spouse_was_dependent=False, label=f"{won(profit)} · 폴스타4(기록부O) + 배우자급여250"),
     ]
 
 def main():
