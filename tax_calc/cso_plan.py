@@ -195,10 +195,17 @@ def scenarios(profit):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--profit", type=float, nargs="*", default=[20_000_000, 30_000_000])
+    ap.add_argument("--profit", type=float, nargs="*", default=[20_000_000, 30_000_000], help="월 영업이익(차·판촉 차감 전)")
+    ap.add_argument("--deposit", type=float, nargs="*", help="월 입금액(부가세 포함 수수료). 지정 시 --profit 무시: 영업이익 = 입금/1.1 − 운영비")
+    ap.add_argument("--misc", type=float, default=250_000, help="월 소액 운영비(통신·기장료·소모품), --deposit 와 함께 사용")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
-    for pr in a.profit:
+    profits = a.profit
+    if a.deposit:
+        profits = [d / 1.1 - a.misc for d in a.deposit]
+        for d, p in zip(a.deposit, profits):
+            print(f"입금 {won(d)}/월(부가세 포함) → 공급가액 {won(d/1.1)} → 부가세 {won(d - d/1.1)} 별도 보관 → 운영비 {won(a.misc)} 차감 → 영업이익 {won(p)}")
+    for pr in profits:
         rs = [compute(p) for p in scenarios(pr)]
         if a.json: print(json.dumps(rs, ensure_ascii=False, indent=2)); continue
         print(f"\n### 월 영업이익 {won(pr)}\n"); print(table(rs))
